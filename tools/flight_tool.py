@@ -311,13 +311,15 @@ def find_location_mentions(query: str):
         if re.search(rf"\b{re.escape(city)}\b", q):
             mentions.append(city)
 
-    # Remove duplicate while keeping order
-    unique_mentions = []
-    for item in mentions:
-        if item not in unique_mentions:
-            unique_mentions.append(item)
-
-    return unique_mentions
+    # Preserve the order in which locations appear in the user's query.
+    # The sources above are grouped by alias/country/city, so their raw order
+    # does not necessarily reflect the route (for example, "Japan from
+    # Bangladesh" could otherwise be interpreted backwards).
+    unique_mentions = set(mentions)
+    return sorted(
+        unique_mentions,
+        key=lambda item: q.find(item),
+    )
 
 
 def parse_route(query: str):
@@ -388,6 +390,14 @@ def parse_route(query: str):
 
         return dep_iata, arr_iata
 
+    # Handle destination-first wording such as "Japan trip from Bangladesh".
+    # Do this before the one-sided "from X" / "to Y" patterns below.
+    mentions = find_location_mentions(q)
+    if len(mentions) >= 2:
+        dep_iata = resolve_location_to_iata(mentions[1])
+        arr_iata = resolve_location_to_iata(mentions[0])
+        return dep_iata, arr_iata
+
     # Pattern: flights from X
     match = re.search(r"\bfrom\s+(.+?)(?:[.!?]|$)", q_lower)
 
@@ -403,14 +413,6 @@ def parse_route(query: str):
         dest_text = match.group(1)
         arr_iata = resolve_location_to_iata(dest_text)
         return None, arr_iata
-
-    # Fallback: find country/city mentions
-    mentions = find_location_mentions(q)
-
-    if len(mentions) >= 2:
-        dep_iata = resolve_location_to_iata(mentions[0])
-        arr_iata = resolve_location_to_iata(mentions[1])
-        return dep_iata, arr_iata
 
     if len(mentions) == 1:
         arr_iata = resolve_location_to_iata(mentions[0])
